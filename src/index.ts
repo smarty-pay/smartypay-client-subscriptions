@@ -74,9 +74,13 @@ class SmartyPaySubscriptionsBrowserImpl {
 
       // connect to wallet
       try {
+
         await wallet.connect();
         storeLastWeb3ApiName(walletName);
+
       } catch (e){
+        // no need of non-connected active wallet
+        this.activeWalletApi = undefined;
         clearLastWeb3ApiName();
         throw e;
       }
