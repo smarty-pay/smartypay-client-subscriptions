@@ -80,7 +80,6 @@ class SmartyPaySubscriptionsBrowserImpl {
         clearLastWeb3ApiName();
         throw e;
       }
-
     });
   }
 
@@ -88,12 +87,26 @@ class SmartyPaySubscriptionsBrowserImpl {
     return getLastWeb3ApiName();
   }
 
-  hasActiveWallet(){
-    return !!this.activeWalletApi;
+  getWalletName(): string|undefined{
+    return this.activeWalletApi?.name();
   }
 
   isWalletConnected(){
-    return this.activeWalletApi? this.activeWalletApi.isConnected() : false;
+    return this.activeWalletApi?.isConnected() || false;
+  }
+
+  async getWalletAddress(){
+    if(this.activeWalletApi && this.activeWalletApi.isConnected()){
+      return this.activeWalletApi.getAddress();
+    }
+    return undefined;
+  }
+
+  async getWalletChainId(){
+    if(this.activeWalletApi && this.activeWalletApi.isConnected()){
+      return this.activeWalletApi.getChainId();
+    }
+    return undefined;
   }
 
   async disconnectFromWallet(){
