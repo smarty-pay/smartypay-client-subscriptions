@@ -15,8 +15,8 @@ import {util} from 'smartypay-client-model';
 
 export type SmartyPaySubscriptionsBrowserEvent =
   Web3ApiEvent
-  | 'blocking-operation-begin'
-  | 'blocking-operation-end';
+  | 'api-locked'
+  | 'api-unlocked';
 
 
 const Name = 'SmartyPaySubscriptionsBrowser';
@@ -25,7 +25,7 @@ const Name = 'SmartyPaySubscriptionsBrowser';
 class SmartyPaySubscriptionsBrowserImpl {
 
   private listeners = new util.ListenersMap<SmartyPaySubscriptionsBrowserEvent>();
-  private activeBlockingOperation: string|undefined;
+  private lockOperation: string|undefined;
 
   private activeWalletApi: Web3Api|undefined;
   private oldWalletApis = new Map<string, Web3Api>();
@@ -39,7 +39,7 @@ class SmartyPaySubscriptionsBrowserImpl {
   }
 
   async connectToWallet(provider: Web3ApiProvider){
-    await this.useBlockingOperation('connectToWallet', async ()=>{
+    await this.useApiLock('connectToWallet', async ()=>{
 
       const walletName = provider.name();
 
@@ -110,7 +110,7 @@ class SmartyPaySubscriptionsBrowserImpl {
   }
 
   async disconnectFromWallet(){
-    await this.useBlockingOperation('disconnectFromWallet', async ()=>{
+    await this.useApiLock('disconnectFromWallet', async ()=>{
       if( ! this.activeWalletApi){
         return;
       }
@@ -126,24 +126,28 @@ class SmartyPaySubscriptionsBrowserImpl {
     });
   }
 
-  private async useBlockingOperation<T>(
+  isApiLocked(){
+    return !! this.lockOperation;
+  }
+
+  private async useApiLock<T>(
     opName: string,
     call: (...args: any[])=>Promise<T>
   ): Promise<T|undefined> {
 
     // use only one blocking operation
-    if(this.activeBlockingOperation){
-      console.warn(`${Name}: Can't call blocking operation "${opName}" while is going "${this.activeBlockingOperation}"`);
+    if(this.lockOperation){
+      console.warn(`${Name}: Can't call operation "${opName}" because api is locked by "${this.lockOperation}"`);
       return undefined;
     }
 
-    this.activeBlockingOperation = opName;
-    this.listeners.fireEvent('blocking-operation-begin', opName);
+    this.lockOperation = opName;
+    this.listeners.fireEvent('api-locked', opName);
     try {
       return await call();
     } finally {
-      this.activeBlockingOperation = undefined;
-      this.listeners.fireEvent('blocking-operation-end', opName);
+      this.lockOperation = undefined;
+      this.listeners.fireEvent('api-unlocked', opName);
     }
   }
 
