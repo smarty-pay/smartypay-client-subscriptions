@@ -10,11 +10,32 @@ import {
   clearLastWeb3ApiName,
   getLastWeb3ApiName
 } from 'smartypay-client-web3-common';
-import {util} from 'smartypay-client-model';
+import {
+  SubscriptionPlan,
+  SubscriptionPlanStatus,
+  Subscription,
+  SubscriptionStatus,
+  SubscriptionId,
+  SubscriptionCharge,
+  SubscriptionChargeStatus,
+  util,
+} from 'smartypay-client-model';
+
+export {
+  SubscriptionPlan,
+  SubscriptionPlanStatus,
+  Subscription,
+  SubscriptionStatus,
+  SubscriptionId,
+  SubscriptionCharge,
+  SubscriptionChargeStatus,
+}
 
 
 export type SmartyPaySubscriptionsBrowserEvent =
   Web3ApiEvent
+  | 'wallet-connecting'
+  | 'wallet-connection-error'
   | 'api-locked'
   | 'api-unlocked';
 
@@ -27,8 +48,11 @@ class SmartyPaySubscriptionsBrowserImpl {
   private listeners = new util.ListenersMap<SmartyPaySubscriptionsBrowserEvent>();
   private lockOperation: string|undefined;
 
+  // wallet state
   private activeWalletApi: Web3Api|undefined;
   private oldWalletApis = new Map<string, Web3Api>();
+  private walletConnecting = false;
+  private walletLastConnectionError: any = undefined;
 
   addListener(event: SmartyPaySubscriptionsBrowserEvent, listener: (...args: any[])=>void){
     this.listeners.addListener(event, listener);
@@ -73,16 +97,27 @@ class SmartyPaySubscriptionsBrowserImpl {
       this.activeWalletApi = wallet;
 
       // connect to wallet
+      this.walletConnecting = true;
+      this.listeners.fireEvent('wallet-connecting', true);
       try {
 
         await wallet.connect();
+
         storeLastWeb3ApiName(walletName);
+        this.walletLastConnectionError = undefined;
 
       } catch (e){
         // no need of non-connected active wallet
         this.activeWalletApi = undefined;
         clearLastWeb3ApiName();
+
+        this.walletLastConnectionError = e;
+        this.listeners.fireEvent('wallet-connection-error', e);
+
         throw e;
+      } finally {
+        this.walletConnecting = false;
+        this.listeners.fireEvent('wallet-connecting', false);
       }
     });
   }
@@ -97,6 +132,14 @@ class SmartyPaySubscriptionsBrowserImpl {
 
   isWalletConnected(){
     return this.activeWalletApi?.isConnected() || false;
+  }
+
+  isWalletConnecting(){
+    return this.walletConnecting;
+  }
+
+  getWalletLastConnectionError(){
+    return this.walletLastConnectionError;
   }
 
   async getWalletAddress(){
