@@ -35,9 +35,9 @@ export {
 export type SmartyPaySubscriptionsBrowserEvent =
   Web3ApiEvent
   | 'wallet-connecting'
-  | 'wallet-connection-error'
   | 'api-locked'
-  | 'api-unlocked';
+  | 'api-unlocked'
+  | 'api-error';
 
 
 const Name = 'SmartyPaySubscriptionsBrowser';
@@ -52,7 +52,9 @@ class SmartyPaySubscriptionsBrowserImpl {
   private activeWalletApi: Web3Api|undefined;
   private oldWalletApis = new Map<string, Web3Api>();
   private walletConnecting = false;
-  private walletLastConnectionError: any = undefined;
+
+  // api state
+  private apiLastError: any = undefined;
 
   addListener(event: SmartyPaySubscriptionsBrowserEvent, listener: (...args: any[])=>void){
     this.listeners.addListener(event, listener);
@@ -102,19 +104,16 @@ class SmartyPaySubscriptionsBrowserImpl {
       try {
 
         await wallet.connect();
-
         storeLastWeb3ApiName(walletName);
-        this.walletLastConnectionError = undefined;
 
       } catch (e){
+
         // no need of non-connected active wallet
         this.activeWalletApi = undefined;
         clearLastWeb3ApiName();
 
-        this.walletLastConnectionError = e;
-        this.listeners.fireEvent('wallet-connection-error', e);
-
         throw e;
+
       } finally {
         this.walletConnecting = false;
         this.listeners.fireEvent('wallet-connecting', false);
@@ -136,10 +135,6 @@ class SmartyPaySubscriptionsBrowserImpl {
 
   isWalletConnecting(){
     return this.walletConnecting;
-  }
-
-  getWalletLastConnectionError(){
-    return this.walletLastConnectionError;
   }
 
   async getWalletAddress(){
@@ -177,6 +172,11 @@ class SmartyPaySubscriptionsBrowserImpl {
     return !! this.lockOperation;
   }
 
+  getApiLastError(){
+    return this.apiLastError;
+  }
+
+
   private async useApiLock<T>(
     opName: string,
     call: (...args: any[])=>Promise<T>
@@ -188,13 +188,28 @@ class SmartyPaySubscriptionsBrowserImpl {
       return undefined;
     }
 
+
+    let result: any;
+    let resultError: any;
+
     this.lockOperation = opName;
     this.listeners.fireEvent('api-locked', opName);
     try {
-      return await call();
-    } finally {
+      result = await call();
+    }
+    catch (e){
+      resultError = e;
+    }
+    finally {
       this.lockOperation = undefined;
       this.listeners.fireEvent('api-unlocked', opName);
+    }
+
+    if(resultError){
+      this.updateApiLastError(resultError);
+      throw resultError;
+    } else {
+      return result;
     }
   }
 
@@ -203,6 +218,11 @@ class SmartyPaySubscriptionsBrowserImpl {
       throw util.makeError(Name, 'No wallet to use');
     }
     return this.activeWalletApi;
+  }
+
+  private updateApiLastError(error: any){
+    this.apiLastError = error;
+    this.listeners.fireEvent('api-error', error);
   }
 }
 
