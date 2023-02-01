@@ -11,25 +11,8 @@ import {
   Web3ApiProvider
 } from 'smartypay-client-web3-common';
 import {
-  Subscription,
-  SubscriptionCharge,
-  SubscriptionChargeStatus,
-  SubscriptionId,
-  SubscriptionPlan,
-  SubscriptionPlanStatus,
-  SubscriptionStatus,
   util,
 } from 'smartypay-client-model';
-
-export {
-  SubscriptionPlan,
-  SubscriptionPlanStatus,
-  Subscription,
-  SubscriptionStatus,
-  SubscriptionId,
-  SubscriptionCharge,
-  SubscriptionChargeStatus,
-}
 
 
 export type SmartyPaySubscriptionsBrowserEvent =
