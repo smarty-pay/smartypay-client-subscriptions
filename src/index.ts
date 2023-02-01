@@ -3,21 +3,21 @@
   @author Evgeny Dolganov <evgenij.dolganov@gmail.com>
 */
 import {
+  clearLastWeb3ApiName,
+  getLastWeb3ApiName,
+  storeLastWeb3ApiName,
   Web3Api,
   Web3ApiEvent,
-  Web3ApiProvider,
-  storeLastWeb3ApiName,
-  clearLastWeb3ApiName,
-  getLastWeb3ApiName
+  Web3ApiProvider
 } from 'smartypay-client-web3-common';
 import {
-  SubscriptionPlan,
-  SubscriptionPlanStatus,
   Subscription,
-  SubscriptionStatus,
-  SubscriptionId,
   SubscriptionCharge,
   SubscriptionChargeStatus,
+  SubscriptionId,
+  SubscriptionPlan,
+  SubscriptionPlanStatus,
+  SubscriptionStatus,
   util,
 } from 'smartypay-client-model';
 
@@ -232,3 +232,36 @@ class SmartyPaySubscriptionsBrowserImpl {
  * Subscriptions browser sdk single instance
  */
 export const SmartyPaySubscriptionsBrowser = new SmartyPaySubscriptionsBrowserImpl();
+
+
+
+export async function restoreOldWalletConnectionFromAny(...providers: Web3ApiProvider[]): Promise<boolean>{
+  const oldConnectedWalletName = SmartyPaySubscriptionsBrowser.getOldConnectedWallet();
+  const provider = providers.find(p => p.name() === oldConnectedWalletName);
+  if(provider){
+    return restoreOldWalletConnection(provider);
+  } else {
+    return false;
+  }
+}
+
+async function restoreOldWalletConnection(provider: Web3ApiProvider): Promise<boolean>{
+
+  const oldConnectedWalletName = SmartyPaySubscriptionsBrowser.getOldConnectedWallet();
+  if( oldConnectedWalletName !== provider.name()){
+    return false;
+  }
+
+  // wallet already connected
+  if(SmartyPaySubscriptionsBrowser.isWalletConnected()){
+    return false;
+  }
+
+  try {
+    await SmartyPaySubscriptionsBrowser.connectToWallet(provider);
+    return true;
+  } catch (e){
+    console.error(`${Name}: Can not connect to wallet`, e);
+    return false;
+  }
+}
