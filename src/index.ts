@@ -2,15 +2,19 @@
   SMARTy Pay Subscriptions Client SDK
   @author Evgeny Dolganov <evgenij.dolganov@gmail.com>
 */
-import {TokenMaxAbsoluteAmount, wallet, Web3ApiProvider, Web3Common,} from 'smartypay-client-web3-common';
-import {Assets, CurrencyKeys, Subscription, SubscriptionStatus, util,} from 'smartypay-client-model';
+import {TokenMaxAbsoluteAmount, wallet, Web3ApiProvider, Web3Common} from 'smartypay-client-web3-common';
+import {abi, Assets, CurrencyKeys, Subscription, SubscriptionStatus, util} from 'smartypay-client-model';
 import {findApiByContactAddress} from './util';
 import {getJsonFetcher, postJsonFetcher} from './util/fetch-util';
+import {TokenZeroAmount} from '../../smartypay-client-web3-common/src';
 
 
 export type SmartyPaySubscriptionsBrowserEvent =
   wallet.WalletApiEvent
-  | 'subscription-updating';
+  | 'subscription-updating'
+  | 'subscription-updated';
+
+export type SubscriptionsEvent = util.Event;
 
 
 export interface SmartyPaySubscriptionsBrowserProp {
@@ -47,10 +51,6 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
       const address = await wallet.getAddress();
       const subscription = await subscriptionGetter();
 
-      if(!subscription){
-        throw util.makeError('Undefined subscription to activate');
-      }
-
       const {
         status,
         amount: amountVal,
@@ -78,35 +78,158 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
       }
 
       // take approval from wallet to spend a token by subscription contract
-      let approveTx: string;
+      let resultTx: string;
       try {
-        approveTx = await Web3Common.walletTokenApprove(
+        resultTx = await Web3Common.walletTokenApprove(
           wallet,
           token,
           address,
           contractAddress,
           TokenMaxAbsoluteAmount
         );
-        this.fireEvent('blockchain-transaction', 'token-approve-tx', approveTx);
+        this.fireEvent('blockchain-transaction', 'token-approve-tx', resultTx);
       } catch (e){
         // skip long error info
         throw util.makeError(this.name, 'Can not approve token amount.');
       }
 
-      // direct api notification
-      const apiUrl = await this.getCheckStatusUrl(contractAddress);
-      const {isAccepted} = await postJsonFetcher(`${apiUrl}/integration/subscriptions/hint-update-state`, {
-        hash: approveTx,
-        blockchain: token.network
-      });
+      await this.directApiNotification(subscription, resultTx, 'Active');
+    })
+  }
 
-      if( ! isAccepted){
-        throw util.makeError(this.name, 'Can not notify SmartyPay server about subscription');
+  async pauseSubscriptionInWallet(subscriptionGetter: ()=>Promise<Subscription>){
+    await this.useApiLock('pauseSubscriptionInWallet', async ()=>{
+
+      const wallet = this.getActiveWallet();
+      const subscription = await subscriptionGetter();
+
+      const {
+        contractAddress,
+        status,
+      } = subscription;
+
+      // subscription can't be paused
+      if(status !== 'Active'){
+        return;
       }
 
-      // async check subscription status update
-      this.waitSubscriptionStatusUpdate(contractAddress, status, 'Active').catch(console.error);
+      let resultTx;
+      try {
+        const contract = await Web3Common.getContractForWallet(wallet, contractAddress, abi.SubscriptionABI);
+        const txResp = await contract.freeze();
+        const {transactionHash} = await txResp.wait();
+        resultTx = transactionHash;
+        this.fireEvent('blockchain-transaction', 'subscription-pause-tx', resultTx);
+      } catch (e){
+        // skip long error info
+        throw util.makeError(this.name, 'Can not pause subscription.');
+      }
+
+      await this.directApiNotification(subscription, resultTx, 'Paused');
+    });
+  }
+
+
+  async unPauseSubscriptionInWallet(subscriptionGetter: ()=>Promise<Subscription>){
+    await this.useApiLock('unPauseSubscriptionInWallet', async ()=>{
+
+      const wallet = this.getActiveWallet();
+      const subscription = await subscriptionGetter();
+
+      const {
+        contractAddress,
+        status,
+      } = subscription;
+
+      // subscription can't be unpause
+      if(status !== 'Paused'){
+        return;
+      }
+
+      let resultTx;
+      try {
+        const contract = await Web3Common.getContractForWallet(wallet, contractAddress, abi.SubscriptionABI);
+        const txResp = await contract.unfreeze();
+        const {transactionHash} = await txResp.wait();
+        resultTx = transactionHash;
+        this.fireEvent('blockchain-transaction', 'subscription-unpause-tx', resultTx);
+      } catch (e){
+        // skip long error info
+        throw util.makeError(this.name, 'Can not unpause subscription.');
+      }
+
+      await this.directApiNotification(subscription, resultTx, 'Active');
+    });
+  }
+
+
+  async cancelSubscriptionInWallet(subscriptionGetter: ()=>Promise<Subscription>){
+    await this.useApiLock('cancelSubscriptionInWallet', async ()=>{
+
+      const wallet = this.getActiveWallet();
+      const address = await wallet.getAddress();
+      const subscription = await subscriptionGetter();
+
+      const {
+        asset,
+        contractAddress
+      } = subscription;
+
+      const currency = CurrencyKeys.find(c => c === asset);
+      if( ! currency || currency === 'UNKNOWN'){
+        throw util.makeError('Unknown subscription asset', asset);
+      }
+
+      const token = Assets[currency];
+
+
+      // take approval from wallet to spend a token by subscription contract
+      let resultTx: string;
+      try {
+        resultTx = await Web3Common.walletTokenApprove(
+          wallet,
+          token,
+          address,
+          contractAddress,
+          TokenZeroAmount
+        );
+        this.fireEvent('blockchain-transaction', 'token-approve-tx', resultTx);
+      } catch (e){
+        // skip long error info
+        throw util.makeError(this.name, 'Can not deactivate subscription.');
+      }
+
+      await this.directApiNotification(subscription, resultTx, 'Cancelled');
     })
+  }
+
+
+
+
+
+  private async directApiNotification(
+    {
+      contractAddress,
+      blockchain,
+      status
+    }: Subscription,
+    resultTx: string,
+    targetStatus?: SubscriptionStatus,
+  ){
+
+    const apiUrl = await this.getCheckStatusUrl(contractAddress);
+
+    const {isAccepted} = await postJsonFetcher(`${apiUrl}/integration/subscriptions/hint-update-state`, {
+      hash: resultTx,
+      blockchain,
+    });
+
+    if( ! isAccepted){
+      throw util.makeError(this.name, 'Can not notify SmartyPay server about subscription');
+    }
+
+    // async check subscription status update
+    this.waitSubscriptionStatusUpdate(contractAddress, status, targetStatus).catch(console.error);
   }
 
   private async waitSubscriptionStatusUpdate(
@@ -129,6 +252,7 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
     const onDone = ()=>{
       this.updatingSubscriptions.delete(contractAddress);
       this.fireEvent('subscription-updating', contractAddress, false);
+      this.fireEvent('subscription-updated', contractAddress);
     }
 
     while(Date.now() <= stopWaitTimeout){
