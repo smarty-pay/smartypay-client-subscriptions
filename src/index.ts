@@ -15,7 +15,7 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
     super('SmartyPaySubscriptionsBrowser');
   }
 
-  addListener(event: SmartyPaySubscriptionsBrowserEvent, listener: (...args: any[])=>void){
+  addListener(event: SmartyPaySubscriptionsBrowserEvent, listener: util.EventListener){
     super.addListener(event as any, listener);
   }
 
