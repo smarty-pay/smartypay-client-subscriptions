@@ -2,11 +2,10 @@
   SMARTy Pay Subscriptions Client SDK
   @author Evgeny Dolganov <evgenij.dolganov@gmail.com>
 */
-import {TokenMaxAbsoluteAmount, wallet, Web3ApiProvider, Web3Common} from 'smartypay-client-web3-common';
+import {TokenMaxAbsoluteAmount, wallet, Web3ApiProvider, Web3Common, TokenZeroAmount} from 'smartypay-client-web3-common';
 import {abi, Assets, CurrencyKeys, Subscription, SubscriptionStatus, util} from 'smartypay-client-model';
 import {findApiByContactAddress} from './util';
 import {getJsonFetcher, postJsonFetcher} from './util/fetch-util';
-import {TokenZeroAmount} from '../../smartypay-client-web3-common/src';
 
 
 export type SmartyPaySubscriptionsBrowserEvent =
@@ -199,7 +198,7 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
         throw util.makeError(this.name, 'Can not deactivate subscription.');
       }
 
-      await this.directApiNotification(subscription, resultTx, 'Cancelled');
+      await this.directApiNotification(subscription, resultTx);
     })
   }
 
@@ -229,7 +228,8 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
     }
 
     // async check subscription status update
-    this.waitSubscriptionStatusUpdate(contractAddress, status, targetStatus).catch(console.error);
+    this.waitSubscriptionStatusUpdate(contractAddress, status, targetStatus)
+      .catch(console.error);
   }
 
   private async waitSubscriptionStatusUpdate(
