@@ -4,15 +4,28 @@
 */
 import {TokenMaxAbsoluteAmount, wallet, Web3ApiProvider, Web3Common,} from 'smartypay-client-web3-common';
 import {Assets, CurrencyKeys, Subscription, util,} from 'smartypay-client-model';
+import {findApiByContactAddress} from './util';
 
 
 export type SmartyPaySubscriptionsBrowserEvent = wallet.WalletApiEvent;
 
 
+export interface SmartyPaySubscriptionsBrowserProp {
+  smartyApiUrl?: string
+}
+
+
 class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscriptionsBrowserEvent> {
 
-  constructor() {
+  private props: SmartyPaySubscriptionsBrowserProp|undefined;
+
+  constructor(props?: SmartyPaySubscriptionsBrowserProp) {
     super('SmartyPaySubscriptionsBrowser');
+    this.setApiProps(props);
+  }
+
+  setApiProps(props: SmartyPaySubscriptionsBrowserProp|undefined){
+    this.props = props;
   }
 
   addListener(event: SmartyPaySubscriptionsBrowserEvent, listener: util.EventListener){
@@ -71,17 +84,32 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
             TokenMaxAbsoluteAmount
           );
 
-          console.log('!! walletTokenApprove result tx', resultTx)
+          this.getListeners().fireEvent('blockchain-transaction', 'token-approve-tx', resultTx);
         } catch (e){
           // skip long error info
           throw new Error('Can not approve token amount.');
         }
       }
 
+      const apiUrl = await findApiByContactAddress(contractAddress);
+
       // todo call hint activation
-      console.log('!! activateSubscriptionInWallet success done')
+      console.log('!! activateSubscriptionInWallet success done', apiUrl)
 
     })
+  }
+
+  private async getCheckStatusUrl(contractAddress: string): Promise<string>{
+
+    if(this.props?.smartyApiUrl){
+      return this.props.smartyApiUrl;
+    }
+
+    const apiUrl = await findApiByContactAddress(contractAddress);
+    if(!apiUrl){
+      throw util.makeError(this.name, 'Can not find SmartyPay api url');
+    }
+    return apiUrl;
   }
 }
 
