@@ -14,17 +14,20 @@ export type SmartyPaySubscriptionsBrowserEvent =
   | 'subscription-updated';
 
 export type SubscriptionsEvent = util.Event;
+export type SubscriptionsEventListener = (event: SubscriptionsEvent)=>void;
 
 
 export interface SmartyPaySubscriptionsBrowserProp {
-  smartyApiUrl?: string
+  smartyApiUrl?: string,
+  checkStatusDelta?: number,
+  checkStatusMaxAttempts?: number,
 }
 
 
 class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscriptionsBrowserEvent> {
 
   private props: SmartyPaySubscriptionsBrowserProp|undefined;
-  private updatingSubscriptions = new Set<string>();
+  private updatingSubscriptions = new Map<string, string>(); // subId - planId
 
   constructor(props?: SmartyPaySubscriptionsBrowserProp) {
     super('SmartyPaySubscriptionsBrowser');
@@ -35,12 +38,26 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
     this.props = props;
   }
 
-  addListener(event: SmartyPaySubscriptionsBrowserEvent, listener: util.EventListener){
+  addListener(event: SmartyPaySubscriptionsBrowserEvent, listener: SubscriptionsEventListener){
     super.addListener(event as any, listener);
   }
 
+  addGlobalListener(listener: SubscriptionsEventListener){
+    super.addGlobalListener(listener);
+  }
+
+  removeListener(listener: SubscriptionsEventListener) {
+    super.removeListener(listener);
+  }
+
   getUpdatingSubscriptions(): string[]{
-    return Array.from(this.updatingSubscriptions);
+    const subscriptionsSet = this.updatingSubscriptions.keys();
+    return Array.from(subscriptionsSet);
+  }
+
+  getUpdatingSubscriptionsPlans(): string[]{
+    const plansSet = new Set(this.updatingSubscriptions.values());
+    return Array.from(plansSet);
   }
 
   async activateSubscriptionInWallet(subscriptionGetter: ()=>Promise<Subscription>){
@@ -207,15 +224,12 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
 
 
   private async directApiNotification(
-    {
-      contractAddress,
-      blockchain,
-      status
-    }: Subscription,
+    subscription: Subscription,
     resultTx: string,
     targetStatus?: SubscriptionStatus,
   ){
 
+    const {contractAddress, blockchain} = subscription;
     const apiUrl = await this.getCheckStatusUrl(contractAddress);
 
     const {isAccepted} = await postJsonFetcher(`${apiUrl}/integration/subscriptions/hint-update-state`, {
@@ -228,13 +242,16 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
     }
 
     // async check subscription status update
-    this.waitSubscriptionStatusUpdate(contractAddress, status, targetStatus)
+    this.waitSubscriptionStatusUpdate(subscription, targetStatus)
       .catch(console.error);
   }
 
   private async waitSubscriptionStatusUpdate(
-    contractAddress: string,
-    initStatus: SubscriptionStatus,
+    {
+      planId,
+      contractAddress,
+      status: initStatus,
+    }: Subscription,
     targetStatus?: SubscriptionStatus){
 
     // already in set
@@ -243,16 +260,16 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
     }
 
     const apiUrl = await this.getCheckStatusUrl(contractAddress);
-    const waitNextTryDelta = 8000;
-    const stopWaitTimeout = Date.now() + waitNextTryDelta * 5;
+    const waitNextTryDelta = this.props?.checkStatusDelta || 6000;
+    const stopWaitTimeout = Date.now() + waitNextTryDelta * (this.props?.checkStatusMaxAttempts || 5);
 
-    this.updatingSubscriptions.add(contractAddress);
-    this.fireEvent('subscription-updating', contractAddress, true);
+    this.updatingSubscriptions.set(contractAddress, planId);
+    this.fireEvent('subscription-updating', contractAddress, planId, true);
 
     const onDone = ()=>{
       this.updatingSubscriptions.delete(contractAddress);
-      this.fireEvent('subscription-updating', contractAddress, false);
-      this.fireEvent('subscription-updated', contractAddress);
+      this.fireEvent('subscription-updating', contractAddress, planId, false);
+      this.fireEvent('subscription-updated', contractAddress, planId);
     }
 
     while(Date.now() <= stopWaitTimeout){
