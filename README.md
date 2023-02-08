@@ -1,2 +1,1 @@
-# smartypay-client-subscrptions
-SmartyPay Subscriptions client SDK
+# SmartyPay Subscriptions client SDK
