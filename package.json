@@ -1,9 +1,9 @@
 {
-  "name": "smartypay-client-subscrptions",
+  "name": "smartypay-client-subscriptions",
   "version": "2.1.0",
   "description": "SmartyPay Subscriptions client SDK",
   "author": "Evgeny Dolganov <evgenij.dolganov@gmail.com>",
-  "repository": "https://github.com/smarty-pay/smartypay-client-subscrptions",
+  "repository": "https://github.com/smarty-pay/smartypay-client-subscriptions",
   "license": "MIT",
   "keywords": [
     "typescript",
