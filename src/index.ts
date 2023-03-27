@@ -85,6 +85,10 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
       }
 
       const token = Assets[currency];
+
+      // use target network in wallet before start operation
+      await Web3Common.switchWalletToAssetNetwork(wallet, token);
+
       const amountToPay = Web3Common.toAbsoluteForm(amount, token);
 
       const curBalanceVal = await Web3Common.getTokenBalance(token, address);
