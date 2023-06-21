@@ -8,6 +8,11 @@ import {findApiByContactAddress} from './util';
 import {getJsonFetcher, postJsonFetcher} from './util/fetch-util';
 
 
+export {
+  TokenMaxAbsoluteAmount,
+  TokenZeroAmount
+};
+
 export type SmartyPaySubscriptionsBrowserEvent =
   wallet.WalletApiEvent
   | 'subscription-updating'
@@ -21,6 +26,11 @@ export interface SmartyPaySubscriptionsBrowserProp {
   smartyApiUrl?: string,
   checkStatusDelta?: number,
   checkStatusMaxAttempts?: number,
+}
+
+
+export interface ActivateSubscriptionInWalletProps {
+  approveAbsoluteAmount?: string,
 }
 
 
@@ -60,7 +70,10 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
     return Array.from(plansSet);
   }
 
-  async activateSubscriptionInWallet(subscriptionGetter: ()=>Promise<Subscription>){
+  async activateSubscriptionInWallet(
+    subscriptionGetter: ()=>Promise<Subscription>,
+    props?: ActivateSubscriptionInWalletProps,
+  ){
     await this.useApiLock('activateSubscription', async ()=>{
 
       const wallet = this.getActiveWallet();
@@ -105,7 +118,7 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
           token,
           address,
           contractAddress,
-          TokenMaxAbsoluteAmount
+          props?.approveAbsoluteAmount || TokenMaxAbsoluteAmount
         );
         this.fireEvent('blockchain-transaction', 'token-approve-tx', resultTx);
       } catch (e){
