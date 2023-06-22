@@ -70,28 +70,54 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
     return Array.from(plansSet);
   }
 
+  async isValidBalanceToPay(subscription: Subscription): Promise<boolean> {
+
+    const wallet = this.getActiveWallet();
+    const address = await wallet.getAddress();
+
+    const {
+      amount: amountVal,
+    } = subscription;
+
+    const [amount, asset] = amountVal.split(' ');
+    const currency = CurrencyKeys.find(c => c === asset);
+    if( ! currency || currency === 'UNKNOWN'){
+      return false;
+    }
+
+    const token = Assets[currency];
+
+    // use target network in wallet before start operation
+    await Web3Common.switchWalletToAssetNetwork(wallet, token);
+
+    const amountToPay = Web3Common.toAbsoluteForm(amount, token);
+
+    const curBalanceVal = await Web3Common.getTokenBalance(token, address);
+    const curBalance = Web3Common.toAbsoluteForm(curBalanceVal, token);
+
+    return curBalance.gte(amountToPay);
+  }
+
   async activateSubscriptionInWallet(
-    subscriptionGetter: ()=>Promise<Subscription>,
+    subscriptionGetter: ()=>Promise<Subscription|undefined>,
     props?: ActivateSubscriptionInWalletProps,
   ){
     await this.useApiLock('activateSubscription', async ()=>{
 
+      const subscription = await subscriptionGetter();
+      if( ! subscription){
+        return;
+      }
+
       const wallet = this.getActiveWallet();
       const address = await wallet.getAddress();
-      const subscription = await subscriptionGetter();
 
       const {
-        status,
         amount: amountVal,
         contractAddress
       } = subscription;
 
-      // subscription already activated
-      if(status !== 'Draft'){
-        return;
-      }
-
-      const [amount, asset] = amountVal.split(' ');
+      const [asset] = amountVal.split(' ');
       const currency = CurrencyKeys.find(c => c === asset);
       if( ! currency || currency === 'UNKNOWN'){
         throw util.makeError('Can not activate subscription: unknown amount currency', amountVal);
@@ -99,14 +125,8 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
 
       const token = Assets[currency];
 
-      // use target network in wallet before start operation
-      await Web3Common.switchWalletToAssetNetwork(wallet, token);
-
-      const amountToPay = Web3Common.toAbsoluteForm(amount, token);
-
-      const curBalanceVal = await Web3Common.getTokenBalance(token, address);
-      const curBalance = Web3Common.toAbsoluteForm(curBalanceVal, token);
-      if(amountToPay.gt(curBalance)){
+      const isValidBalance = await this.isValidBalanceToPay(subscription);
+      if( ! isValidBalance){
         throw util.makeError(`Not enough ${token.abbr} token funds to activate the subscription`);
       }
 
@@ -130,11 +150,15 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
     })
   }
 
-  async pauseSubscriptionInWallet(subscriptionGetter: ()=>Promise<Subscription>){
+  async pauseSubscriptionInWallet(subscriptionGetter: ()=>Promise<Subscription|undefined>){
     await this.useApiLock('pauseSubscriptionInWallet', async ()=>{
 
-      const wallet = this.getActiveWallet();
       const subscription = await subscriptionGetter();
+      if( ! subscription){
+        return;
+      }
+
+      const wallet = this.getActiveWallet();
 
       const {
         contractAddress,
@@ -163,11 +187,15 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
   }
 
 
-  async unPauseSubscriptionInWallet(subscriptionGetter: ()=>Promise<Subscription>){
+  async unPauseSubscriptionInWallet(subscriptionGetter: ()=>Promise<Subscription|undefined>){
     await this.useApiLock('unPauseSubscriptionInWallet', async ()=>{
 
-      const wallet = this.getActiveWallet();
       const subscription = await subscriptionGetter();
+      if( ! subscription){
+        return;
+      }
+
+      const wallet = this.getActiveWallet();
 
       const {
         contractAddress,
@@ -196,12 +224,16 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
   }
 
 
-  async cancelSubscriptionInWallet(subscriptionGetter: ()=>Promise<Subscription>){
+  async cancelSubscriptionInWallet(subscriptionGetter: ()=>Promise<Subscription|undefined>){
     await this.useApiLock('cancelSubscriptionInWallet', async ()=>{
+
+      const subscription = await subscriptionGetter();
+      if( ! subscription){
+        return;
+      }
 
       const wallet = this.getActiveWallet();
       const address = await wallet.getAddress();
-      const subscription = await subscriptionGetter();
 
       const {
         asset,
