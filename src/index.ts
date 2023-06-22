@@ -2,7 +2,13 @@
   SMARTy Pay Subscriptions Client SDK
   @author Evgeny Dolganov <evgenij.dolganov@gmail.com>
 */
-import {TokenMaxAbsoluteAmount, wallet, Web3ApiProvider, Web3Common, TokenZeroAmount} from 'smartypay-client-web3-common';
+import {
+  TokenMaxAbsoluteAmount,
+  TokenZeroAmount,
+  wallet,
+  Web3ApiProvider,
+  Web3Common
+} from 'smartypay-client-web3-common';
 import {abi, Assets, CurrencyKeys, Subscription, SubscriptionStatus, util} from 'smartypay-client-model';
 import {findApiByContactAddress} from './util';
 import {getJsonFetcher, postJsonFetcher} from './util/fetch-util';
@@ -113,14 +119,13 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
       const address = await wallet.getAddress();
 
       const {
-        amount: amountVal,
+        asset,
         contractAddress
       } = subscription;
 
-      const [asset] = amountVal.split(' ');
       const currency = CurrencyKeys.find(c => c === asset);
       if( ! currency || currency === 'UNKNOWN'){
-        throw util.makeError('Can not activate subscription: unknown amount currency', amountVal);
+        throw util.makeError('Unknown subscription asset', asset);
       }
 
       const token = Assets[currency];
