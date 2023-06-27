@@ -2,8 +2,9 @@
   SMARTy Pay Subscriptions Client SDK
   @author Evgeny Dolganov <evgenij.dolganov@gmail.com>
 */
-import {urls} from 'smartypay-client-model';
+import {urls, Assets, CurrencyKeys, Subscription, Token} from 'smartypay-client-model';
 import {getJsonFetcher} from './fetch-util';
+import {Web3Common} from 'smartypay-client-web3-common';
 
 let cachedApiUrl: string|undefined;
 
@@ -33,4 +34,29 @@ export async function findApiByContactAddress(contractAddress: string): Promise<
   }
 
   return undefined;
+}
+
+
+
+export function isEndingSubscription(subscription: Subscription|undefined): boolean {
+
+  if( ! subscription
+      || subscription.status !== 'Active'){
+    return false;
+  }
+
+  const currency = CurrencyKeys.find(c => c === subscription.asset);
+  if( ! currency || currency === 'UNKNOWN'){
+    return false;
+  }
+
+  const token: Token = Assets[currency];
+
+  const [amountVal] = subscription.amount.split(' ');
+  const [allowanceVal] = subscription.allowance.split(' ');
+
+  const amountToPay = Web3Common.toAbsoluteForm(amountVal || '0', token);
+  const allowance = Web3Common.toAbsoluteForm(allowanceVal || '0', token);
+
+  return amountToPay.gt(allowance);
 }
