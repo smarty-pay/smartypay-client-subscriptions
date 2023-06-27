@@ -287,6 +287,13 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
     })
   }
 
+
+  async getContractStatus(contractAddress: string): Promise<SubscriptionStatus> {
+    const apiUrl = await this.getCheckStatusUrl(contractAddress);
+    const {status} = await getJsonFetcher(`${apiUrl}/integration/subscriptions/${contractAddress}/status`);
+    return status as SubscriptionStatus;
+  }
+
   private async walletTokenApprove(
     approveAbsoluteAmount: string,
     subscription: Subscription
@@ -321,6 +328,7 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
 
     return resultTx;
   }
+
 
   private async directApiNotification(
     subscription: Subscription,
@@ -360,7 +368,6 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
       return;
     }
 
-    const apiUrl = await this.getCheckStatusUrl(contractAddress);
     const waitNextTryDelta = this.props?.checkStatusDelta || 6000;
     const stopWaitTimeout = Date.now() + waitNextTryDelta * (this.props?.checkStatusMaxAttempts || 5);
 
@@ -379,8 +386,9 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
       await util.waitTimeout(waitNextTryDelta);
 
       // check status
-      const {status} = await getJsonFetcher(`${apiUrl}/integration/subscriptions/${contractAddress}/status`);
-      if(status !== initStatus && (!targetStatus || targetStatus === status)){
+      const status = await this.getContractStatus(contractAddress);
+      if(status !== initStatus
+        && (status === 'Error' || !targetStatus || targetStatus === status)){
         onDone();
         return;
       }
