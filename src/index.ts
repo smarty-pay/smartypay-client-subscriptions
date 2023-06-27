@@ -148,10 +148,14 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
         this.fireEvent('blockchain-transaction', 'token-approve-tx', resultTx);
       } catch (e){
         // skip long error info
-        throw util.makeError(this.name, 'Can not approve token amount.');
+        throw util.errorCtx(util.makeError(this.name, 'Can not approve token amount.'),{
+          originalError: e
+        });
       }
 
-      await this.directApiNotification(subscription, resultTx, 'Active');
+      await this.directApiNotification(subscription, resultTx, {
+        targetStatus: 'Active'
+      });
     })
   }
 
@@ -184,10 +188,14 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
         this.fireEvent('blockchain-transaction', 'subscription-pause-tx', resultTx);
       } catch (e){
         // skip long error info
-        throw util.makeError(this.name, 'Can not pause subscription.');
+        throw util.errorCtx(util.makeError(this.name, 'Can not pause subscription.'),{
+          originalError: e
+        });
       }
 
-      await this.directApiNotification(subscription, resultTx, 'Paused');
+      await this.directApiNotification(subscription, resultTx, {
+        targetStatus: 'Paused'
+      });
     });
   }
 
@@ -221,52 +229,32 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
         this.fireEvent('blockchain-transaction', 'subscription-unpause-tx', resultTx);
       } catch (e){
         // skip long error info
-        throw util.makeError(this.name, 'Can not unpause subscription.');
+        throw util.errorCtx(util.makeError(this.name, 'Can not unpause subscription.'),{
+          originalError: e
+        });
       }
 
-      await this.directApiNotification(subscription, resultTx, 'Active');
+      await this.directApiNotification(subscription, resultTx, {
+        targetStatus: 'Active'
+      });
     });
   }
 
 
-  async cancelSubscriptionInWallet(subscriptionGetter: ()=>Promise<Subscription|undefined>){
+  async cancelSubscriptionInWallet(subscriptionGetter: ()=>Promise<Subscription>){
     await this.useApiLock('cancelSubscriptionInWallet', async ()=>{
 
       const subscription = await subscriptionGetter();
-      if( ! subscription){
-        return;
-      }
-
-      const wallet = this.getActiveWallet();
-      const address = await wallet.getAddress();
-
-      const {
-        asset,
-        contractAddress
-      } = subscription;
-
-      const currency = CurrencyKeys.find(c => c === asset);
-      if( ! currency || currency === 'UNKNOWN'){
-        throw util.makeError('Unknown subscription asset', asset);
-      }
-
-      const token = Assets[currency];
-
 
       // take approval from wallet to spend a token by subscription contract
       let resultTx: string;
       try {
-        resultTx = await Web3Common.walletTokenApprove(
-          wallet,
-          token,
-          address,
-          contractAddress,
-          TokenZeroAmount
-        );
-        this.fireEvent('blockchain-transaction', 'token-approve-tx', resultTx);
+        resultTx = await this.walletTokenApprove(TokenZeroAmount, subscription);
       } catch (e){
         // skip long error info
-        throw util.makeError(this.name, 'Can not deactivate subscription.');
+        throw util.errorCtx(util.makeError(this.name, 'Can not deactivate subscription.'), {
+          originalError: e
+        });
       }
 
       await this.directApiNotification(subscription, resultTx);
@@ -274,13 +262,70 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
   }
 
 
+  async changeSubscriptionAllowanceInWallet(
+    subscriptionGetter: ()=>Promise<Subscription>,
+    approveAbsoluteAmount?: string,
+  ){
+    await this.useApiLock('changeSubscriptionAllowanceInWallet', async ()=>{
+
+      const subscription = await subscriptionGetter();
+
+      // take approval from wallet to spend a token by subscription contract
+      let resultTx: string;
+      try {
+        resultTx = await this.walletTokenApprove(approveAbsoluteAmount || TokenMaxAbsoluteAmount, subscription);
+      } catch (e){
+        // skip long error info
+        throw util.errorCtx(util.makeError(this.name, 'Can not change allowance.'), {
+          originalError: e
+        });
+      }
+
+      await this.directApiNotification(subscription, resultTx, {
+        skipWaitSubscriptionStatusUpdate: true
+      });
+    })
+  }
+
+  private async walletTokenApprove(
+    approveAbsoluteAmount: string,
+    subscription: Subscription
+  ){
+
+    const wallet = this.getActiveWallet();
+    const address = await wallet.getAddress();
+
+    const {
+      asset,
+      contractAddress
+    } = subscription;
+
+    const currency = CurrencyKeys.find(c => c === asset);
+    if( ! currency || currency === 'UNKNOWN'){
+      throw util.makeError('Unknown subscription asset', asset);
+    }
+
+    const token = Assets[currency];
 
 
+    // take approval from wallet to spend a token by subscription contract
+    const resultTx = await Web3Common.walletTokenApprove(
+      wallet,
+      token,
+      address,
+      contractAddress,
+      approveAbsoluteAmount,
+    );
+
+    this.fireEvent('blockchain-transaction', 'token-approve-tx', resultTx);
+
+    return resultTx;
+  }
 
   private async directApiNotification(
     subscription: Subscription,
     resultTx: string,
-    targetStatus?: SubscriptionStatus,
+    props?: DirectApiNotificationProps,
   ){
 
     const {contractAddress, blockchain} = subscription;
@@ -295,9 +340,11 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
       throw util.makeError(this.name, 'Can not notify SmartyPay server about subscription');
     }
 
-    // async check subscription status update
-    this.waitSubscriptionStatusUpdate(subscription, targetStatus)
-      .catch(console.error);
+    if( ! props?.skipWaitSubscriptionStatusUpdate) {
+      // async check subscription status update
+      this.waitSubscriptionStatusUpdate(subscription, props?.targetStatus)
+        .catch(console.error);
+    }
   }
 
   private async waitSubscriptionStatusUpdate(
@@ -357,6 +404,11 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
   }
 }
 
+
+interface DirectApiNotificationProps {
+  targetStatus?: SubscriptionStatus,
+  skipWaitSubscriptionStatusUpdate?: boolean
+}
 
 
 /**
