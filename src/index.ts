@@ -9,14 +9,16 @@ import {
   Web3ApiProvider,
   Web3Common
 } from 'smartypay-client-web3-common';
-import {abi, Assets, CurrencyKeys, Subscription, SubscriptionStatus, util} from 'smartypay-client-model';
+import {abi, getTokenByCurrency, getAmountWithTokenLabel, Subscription, SubscriptionStatus, util} from 'smartypay-client-model';
 import {findApiByContactAddress} from './util';
 import {getJsonFetcher, postJsonFetcher} from './util/fetch-util';
 
 
 export {
   TokenMaxAbsoluteAmount,
-  TokenZeroAmount
+  TokenZeroAmount,
+  getTokenByCurrency,
+  getAmountWithTokenLabel,
 };
 
 export type SmartyPaySubscriptionsBrowserEvent =
@@ -86,12 +88,8 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
     } = subscription;
 
     const [amount, asset] = amountVal.split(' ');
-    const currency = CurrencyKeys.find(c => c === asset);
-    if( ! currency || currency === 'UNKNOWN'){
-      return false;
-    }
 
-    const token = Assets[currency];
+    const token = getTokenByCurrency(asset);
 
     // use target network in wallet before start operation
     await Web3Common.switchWalletToAssetNetwork(wallet, token);
@@ -123,12 +121,7 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
         contractAddress
       } = subscription;
 
-      const currency = CurrencyKeys.find(c => c === asset);
-      if( ! currency || currency === 'UNKNOWN'){
-        throw util.makeError('Unknown subscription asset', asset);
-      }
-
-      const token = Assets[currency];
+      const token = getTokenByCurrency(asset);
 
       const isValidBalance = await this.isValidBalanceToPay(subscription);
       if( ! isValidBalance){
@@ -312,13 +305,7 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
       contractAddress
     } = subscription;
 
-    const currency = CurrencyKeys.find(c => c === asset);
-    if( ! currency || currency === 'UNKNOWN'){
-      throw util.makeError('Unknown subscription asset', asset);
-    }
-
-    const token = Assets[currency];
-
+    const token = getTokenByCurrency(asset);
 
     // take approval from wallet to spend a token by subscription contract
     const resultTx = await Web3Common.walletTokenApprove(
@@ -378,15 +365,11 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
       return;
     }
 
-    const currency = CurrencyKeys.find(c => c === asset);
-    if( ! currency || currency === 'UNKNOWN'){
-      return;
-    }
+    const token = getTokenByCurrency(asset);
 
     const checkUpdateByAllowanceLess = !! props?.targetAllowanceIsLessThan;
     const checkUpdateByStatus = ! checkUpdateByAllowanceLess;
 
-    const token = Assets[currency];
     const waitNextTryDelta = this.props?.checkStatusDelta || 6000;
     const stopWaitTimeout = Date.now() + waitNextTryDelta * (this.props?.checkStatusMaxAttempts || 5);
 
@@ -476,4 +459,22 @@ export const SmartyPaySubscriptionsBrowser = new SmartyPaySubscriptionsBrowserIm
 
 export async function restoreOldWalletConnectionFromAny(...providers: Web3ApiProvider[]): Promise<boolean>{
   return wallet.restoreOldWalletConnectionFromAny(SmartyPaySubscriptionsBrowser, ...providers);
+}
+
+
+export function isEndingSubscription(subscription: Subscription|undefined): boolean {
+
+  if( ! subscription || subscription.status !== 'Active'){
+    return false;
+  }
+
+  const token = getTokenByCurrency(subscription.asset);
+
+  const [amountVal] = subscription.amount.split(' ');
+  const [allowanceVal] = subscription.allowance.split(' ');
+
+  const amountToPay = Web3Common.toAbsoluteForm(amountVal || '0', token);
+  const allowance = Web3Common.toAbsoluteForm(allowanceVal || '0', token);
+
+  return amountToPay.gt(allowance);
 }
