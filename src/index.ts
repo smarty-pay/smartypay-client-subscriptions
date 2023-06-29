@@ -41,6 +41,10 @@ export interface ActivateSubscriptionInWalletProps {
   approveAbsoluteAmount?: string,
 }
 
+export interface ChangeSubscriptionAllowanceInWalletProps {
+  approveAbsoluteAmount?: string,
+}
+
 
 class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscriptionsBrowserEvent> {
 
@@ -261,17 +265,23 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
 
 
   async changeSubscriptionAllowanceInWallet(
-    subscriptionGetter: ()=>Promise<Subscription>,
-    approveAbsoluteAmount?: string,
+    subscriptionGetter: ()=>Promise<Subscription|undefined>,
+    props?: ChangeSubscriptionAllowanceInWalletProps,
   ){
     await this.useApiLock('changeSubscriptionAllowanceInWallet', async ()=>{
 
       const subscription = await subscriptionGetter();
+      if( ! subscription){
+        return;
+      }
 
       // take approval from wallet to spend a token by subscription contract
       let resultTx: string;
       try {
-        resultTx = await this.walletTokenApprove(approveAbsoluteAmount || TokenMaxAbsoluteAmount, subscription);
+        resultTx = await this.walletTokenApprove(
+          props?.approveAbsoluteAmount || TokenMaxAbsoluteAmount,
+          subscription
+        );
       } catch (e){
         // skip long error info
         throw util.errorCtx(util.makeError(this.name, 'Can not change allowance.'), {
