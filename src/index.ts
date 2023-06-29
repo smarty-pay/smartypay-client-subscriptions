@@ -9,7 +9,14 @@ import {
   Web3ApiProvider,
   Web3Common
 } from 'smartypay-client-web3-common';
-import {abi, getTokenByCurrency, getAmountWithTokenLabel, Subscription, SubscriptionStatus, util} from 'smartypay-client-model';
+import {
+  abi,
+  getAmountWithTokenLabel,
+  getTokenByCurrency,
+  Subscription,
+  SubscriptionStatus,
+  util
+} from 'smartypay-client-model';
 import {findApiByContactAddress} from './util';
 import {getJsonFetcher, postJsonFetcher} from './util/fetch-util';
 
@@ -290,7 +297,7 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
       }
 
       await this.directApiNotification(subscription, resultTx, {
-        skipWaitSubscriptionUpdate: true
+        targetAllowanceChangedFrom: subscription.allowance
       });
     })
   }
@@ -300,6 +307,12 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
     const apiUrl = await this.getCheckStatusUrl(contractAddress);
     const {status} = await getJsonFetcher(`${apiUrl}/integration/subscriptions/${contractAddress}/status`);
     return status as SubscriptionStatus;
+  }
+
+  private async getContractProcessedAllowance(contractAddress: string): Promise<string> {
+    const apiUrl = await this.getCheckStatusUrl(contractAddress);
+    const {allowance} = await getJsonFetcher(`${apiUrl}/integration/subscriptions/${contractAddress}/status`);
+    return allowance;
   }
 
   private async walletTokenApprove(
@@ -377,8 +390,8 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
 
     const token = getTokenByCurrency(asset);
 
-    const checkUpdateByAllowanceLess = !! props?.targetAllowanceIsLessThan;
-    const checkUpdateByStatus = ! checkUpdateByAllowanceLess;
+    const checkUpdateByAllowance = !! props?.targetAllowanceIsLessThan || !! props?.targetAllowanceChangedFrom;
+    const checkUpdateByStatus = ! checkUpdateByAllowance;
 
     const waitNextTryDelta = this.props?.checkStatusDelta || 6000;
     const stopWaitTimeout = Date.now() + waitNextTryDelta * (this.props?.checkStatusMaxAttempts || 5);
@@ -392,12 +405,12 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
       true,
       {
         checkUpdateByStatus,
-        checkUpdateByAllowanceLess,
+        checkUpdateByAllowance,
       });
 
-    const onDone = ()=>{
+    const onDone = (reason?: any)=>{
       this.updatingSubscriptions.delete(contractAddress);
-      this.fireEvent('subscription-updating', contractAddress, planId, false);
+      this.fireEvent('subscription-updating', contractAddress, planId, false, reason);
       this.fireEvent('subscription-updated', contractAddress, planId);
     }
 
@@ -412,32 +425,47 @@ class SmartyPaySubscriptionsBrowserImpl extends wallet.WalletApi<SmartyPaySubscr
         const status = await this.getContractStatus(contractAddress);
         if(status !== initStatus
           && (status === 'Error' || !props?.targetStatus || props?.targetStatus === status)){
-          onDone();
+          onDone({status});
           return;
         }
       }
       // check update by allowance
-      else if(checkUpdateByAllowanceLess){
+      else if(checkUpdateByAllowance){
 
-        const [amountVal] = amount.split(' ');
-        const allowanceVal = await Web3Common.getTokenAllowance(token, payer, contractAddress);
 
-        const amountToPay = Web3Common.toAbsoluteForm(amountVal || '0', token);
+        const [allowanceVal] = (await this.getContractProcessedAllowance(contractAddress)).split(' ');
         const allowance = Web3Common.toAbsoluteForm(allowanceVal || '0', token);
-        if(amountToPay.gt(allowance)){
-          onDone();
-          return;
+
+        if(props?.targetAllowanceIsLessThan){
+
+          const [amountVal] = amount.split(' ');
+          const amountToPay = Web3Common.toAbsoluteForm(amountVal || '0', token);
+
+          if(amountToPay.gt(allowance)){
+            onDone({allowance: allowance.toString()});
+            return;
+          }
         }
+        else if(props?.targetAllowanceChangedFrom){
+
+          const [oldAllowanceVal] = props.targetAllowanceChangedFrom.split(' ');
+          const oldAllowance = Web3Common.toAbsoluteForm(oldAllowanceVal || '0', token);
+          if( ! allowance.eq(oldAllowance)){
+            onDone({allowance: allowance.toString()});
+            return;
+          }
+        }
+
       }
       // unknown to check
       else {
-        onDone();
+        onDone({error: 'unknown check'});
         return;
       }
     }
 
     // timeout
-    onDone();
+    onDone({error: 'timeout'});
   }
 
   private async getCheckStatusUrl(contractAddress: string): Promise<string>{
@@ -459,6 +487,7 @@ interface WaitSubscriptionUpdateProps {
   skipWaitSubscriptionUpdate?: boolean,
   targetStatus?: SubscriptionStatus,
   targetAllowanceIsLessThan?: string,
+  targetAllowanceChangedFrom?: string,
 }
 
 
